@@ -132,6 +132,45 @@ class Database {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+            
+            CREATE TABLE IF NOT EXISTS appointments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                phone VARCHAR(50),
+                appointment_date DATE NOT NULL,
+                appointment_time TIME NOT NULL,
+                service_type VARCHAR(255),
+                message TEXT,
+                payment_method VARCHAR(20) NOT NULL,
+                payment_status VARCHAR(20) DEFAULT 'pending',
+                status VARCHAR(20) DEFAULT 'pending',
+                price DECIMAL(10,2) DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            
+            CREATE TABLE IF NOT EXISTS availability_slots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date DATE NOT NULL,
+                time_start TIME NOT NULL,
+                time_end TIME NOT NULL,
+                is_available INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            
+            CREATE TABLE IF NOT EXISTS news_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title VARCHAR(255) NOT NULL,
+                content TEXT NOT NULL,
+                type VARCHAR(20) NOT NULL, -- 'news' or 'event'
+                event_date DATE NULL,
+                image_path VARCHAR(500),
+                is_published INTEGER DEFAULT 1,
+                order_position INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
             ";
             
             // Exécuter le SQL pour créer les tables
@@ -167,7 +206,11 @@ class Database {
             "CREATE INDEX IF NOT EXISTS idx_site_content_key ON site_content(section, key_name);",
             "CREATE INDEX IF NOT EXISTS idx_services_active ON services(is_active, order_position);",
             "CREATE INDEX IF NOT EXISTS idx_team_members_active ON team_members(is_active, order_position);",
-            "CREATE INDEX IF NOT EXISTS idx_admin_settings_key ON admin_settings(setting_key);"
+            "CREATE INDEX IF NOT EXISTS idx_admin_settings_key ON admin_settings(setting_key);",
+            "CREATE INDEX IF NOT EXISTS idx_appointments_date_time ON appointments(appointment_date, appointment_time);",
+            "CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);",
+            "CREATE INDEX IF NOT EXISTS idx_availability_date ON availability_slots(date);",
+            "CREATE INDEX IF NOT EXISTS idx_news_events_type ON news_events(type, is_published);"
         ];
         
         foreach ($indexes as $index) {

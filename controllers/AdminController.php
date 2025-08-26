@@ -220,6 +220,48 @@ class AdminController {
                     $success = 'Ordre de l\'équipe mis à jour avec succès!';
                 }
             }
+            elseif ($action === 'add_news_event') {
+                $title = $_POST['title'] ?? '';
+                $content = $_POST['content'] ?? '';
+                $type = $_POST['type'] ?? 'news';
+                $eventDate = $_POST['event_date'] ?? null;
+                $isPublished = isset($_POST['is_published']) ? 1 : 0;
+                
+                if ($title && $content) {
+                    $stmt = $this->db->prepare("
+                        INSERT INTO news_events (title, content, type, event_date, is_published, order_position, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(order_position), 0) + 1 FROM news_events), datetime('now'), datetime('now'))
+                    ");
+                    $stmt->execute([$title, $content, $type, $eventDate, $isPublished]);
+                    $success = 'Actualité/Événement ajouté avec succès!';
+                } else {
+                    $success = 'Erreur : Titre et contenu sont requis.';
+                }
+            }
+            elseif ($action === 'update_news_event') {
+                $id = $_POST['news_event_id'];
+                $title = $_POST['title'];
+                $content = $_POST['content'];
+                $type = $_POST['type'];
+                $eventDate = $_POST['event_date'] ?? null;
+                $isPublished = isset($_POST['is_published']) ? 1 : 0;
+                
+                $stmt = $this->db->prepare("
+                    UPDATE news_events 
+                    SET title = ?, content = ?, type = ?, event_date = ?, is_published = ?, updated_at = datetime('now')
+                    WHERE id = ?
+                ");
+                $stmt->execute([$title, $content, $type, $eventDate, $isPublished, $id]);
+                $success = 'Actualité/Événement mis à jour avec succès!';
+            }
+            elseif ($action === 'delete_news_event') {
+                $id = $_POST['news_event_id'] ?? '';
+                if ($id) {
+                    $stmt = $this->db->prepare("DELETE FROM news_events WHERE id = ?");
+                    $stmt->execute([$id]);
+                    $success = 'Actualité/Événement supprimé avec succès!';
+                }
+            }
         }
         
         // Charger le contenu
@@ -235,6 +277,7 @@ class AdminController {
         
         $services = $this->db->query("SELECT * FROM services ORDER BY order_position")->fetchAll(PDO::FETCH_ASSOC);
         $team = $this->db->query("SELECT * FROM team_members ORDER BY order_position")->fetchAll(PDO::FETCH_ASSOC);
+        $newsEvents = $this->db->query("SELECT * FROM news_events ORDER BY order_position")->fetchAll(PDO::FETCH_ASSOC);
         
         include 'views/admin/content.php';
     }

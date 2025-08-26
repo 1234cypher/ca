@@ -27,6 +27,17 @@ define('ROOT_PATH', __DIR__ . '/../');
 define('MAX_FILE_SIZE', 10485760); // 10MB en bytes
 define('ALLOWED_FILE_TYPES', ['pdf', 'doc', 'docx', 'txt', 'jpg', 'jpeg', 'png']);
 
+// Appointment configuration
+define('APPOINTMENT_PRICE', 50.00); // Prix en euros
+define('APPOINTMENT_DURATION', 60); // Durée en minutes
+define('WORKING_HOURS_START', '09:00');
+define('WORKING_HOURS_END', '18:00');
+define('WORKING_DAYS', [1, 2, 3, 4, 5]); // Lundi à Vendredi
+
+// Payment methods
+define('PAYMENT_ON_SITE', 'on_site');
+define('PAYMENT_ONLINE', 'online');
+
 // Timezone
 date_default_timezone_set('Europe/Paris');
 
