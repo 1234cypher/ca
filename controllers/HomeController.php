@@ -1,390 +1,418 @@
 <?php
 require_once 'includes/Database.php';
 
-class HomeController {
+class AdminController {
     private $db;
     
     public function __construct() {
         $database = new Database();
         $this->db = $database->getConnection();
+    }
+    
+    public function login() {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $username = $_POST['username'] ?? '';
+            $password = $_POST['password'] ?? '';
+            
+            if ($username === ADMIN_USERNAME && password_verify($password, ADMIN_PASSWORD)) {
+                $_SESSION['admin_logged_in'] = true;
+                header('Location: /admin/dashboard');
+                exit;
+            } else {
+                $error = 'Identifiants incorrects';
+            }
+        }
         
-        // Vérifier et initialiser les données si nécessaire
-        $this->ensureDefaultData();
+        if (isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in']) {
+            header('Location: /admin/dashboard');
+            exit;
+        }
+        
+        include 'views/admin/login.php';
     }
     
-    public function index() {
-        try {
-            // Get content
-            $content = $this->getContent();
-            $services = $this->getServices();
-            $team = $this->getTeam();
+    public function dashboard() {
+        $this->requireAuth();
+        
+        $stats = [
+            'contacts' => $this->db->query("SELECT COUNT(*) FROM contacts")->fetchColumn(),
+            'new_contacts' => $this->db->query("SELECT COUNT(*) FROM contacts WHERE status = 'new'")->fetchColumn(),
+            'services' => $this->db->query("SELECT COUNT(*) FROM services WHERE is_active = 1")->fetchColumn(),
+            'team_members' => $this->db->query("SELECT COUNT(*) FROM team_members WHERE is_active = 1")->fetchColumn()
+        ];
+        
+        $recent_contacts = $this->db->query("
+            SELECT * FROM contacts 
+            ORDER BY created_at DESC 
+            LIMIT 5
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        include 'views/admin/dashboard.php';
+    }
+    
+    public function content() {
+        $this->requireAuth();
+        
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $action = $_POST['action'] ?? '';
             
-            // Debug : vérifier si on a des données
-            error_log("HomeController - Content count: " . count($content));
-            error_log("HomeController - Services count: " . count($services));
-            error_log("HomeController - Team count: " . count($team));
-            
-            // Si pas de données, forcer l'initialisation
-            if (empty($services) || empty($team) || empty($content)) {
-                error_log("Données manquantes détectées - réinitialisation");
-                $this->forceResetData();
+            if ($action === 'update_content') {
+                foreach ($_POST['content'] as $section => $keys) {
+                    foreach ($keys as $key => $value) {
+                        $stmt = $this->db->prepare("
+                            INSERT OR REPLACE INTO site_content (section, key_name, value, updated_at) 
+                            VALUES (?, ?, ?, datetime('now'))
+                        ");
+                        $stmt->execute([$section, $key, $value]);
+                    }
+                }
+                $success = 'Contenu mis à jour avec succès!';
+            } 
+            elseif ($action === 'add_content_section') {
+                $section = $_POST['new_section'] ?? '';
+                $key = $_POST['new_key'] ?? '';
+                $value = $_POST['new_value'] ?? '';
                 
-                // Récupérer les données à nouveau
-                $content = $this->getContent();
-                $services = $this->getServices();
-                $team = $this->getTeam();
-            }
-            
-            include 'views/home.php';
-            
-        } catch (Exception $e) {
-            error_log("Erreur HomeController::index - " . $e->getMessage());
-            
-            // En cas d'erreur, utiliser des données par défaut
-            $content = $this->getDefaultContent();
-            $services = $this->getDefaultServices();
-            $team = $this->getDefaultTeam();
-            
-            include 'views/home.php';
-        }
-    }
-    
-    private function ensureDefaultData() {
-        try {
-            // Vérifier si les tables ont des données
-            $serviceCount = $this->db->query("SELECT COUNT(*) FROM services")->fetchColumn();
-            $teamCount = $this->db->query("SELECT COUNT(*) FROM team_members")->fetchColumn();
-            $contentCount = $this->db->query("SELECT COUNT(*) FROM site_content")->fetchColumn();
-            
-            error_log("Counts - Services: $serviceCount, Team: $teamCount, Content: $contentCount");
-            
-            if ($serviceCount == 0) {
-                $this->insertDefaultServices();
-            }
-            
-            if ($teamCount == 0) {
-                $this->insertDefaultTeam();
-            }
-            
-            if ($contentCount == 0) {
-                $this->insertDefaultContent();
-            }
-            
-        } catch (Exception $e) {
-            error_log("Erreur ensureDefaultData: " . $e->getMessage());
-        }
-    }
-    
-    private function forceResetData() {
-        try {
-            // Supprimer et recréer les données
-            $this->db->exec("DELETE FROM services");
-            $this->db->exec("DELETE FROM team_members");
-            $this->db->exec("DELETE FROM site_content");
-            
-            $this->insertDefaultServices();
-            $this->insertDefaultTeam();
-            $this->insertDefaultContent();
-            
-            error_log("Données par défaut réinsérées avec succès");
-            
-        } catch (Exception $e) {
-            error_log("Erreur forceResetData: " . $e->getMessage());
-        }
-    }
-    
-    private function getContent() {
-        try {
-            $stmt = $this->db->query("SELECT section, key_name, value FROM site_content");
-            $content = [];
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $content[$row['section']][$row['key_name']] = $row['value'];
-            }
-            
-            // Si vide, retourner des valeurs par défaut
-            if (empty($content)) {
-                return $this->getDefaultContent();
-            }
-            
-            return $content;
-        } catch (Exception $e) {
-            error_log("Erreur getContent: " . $e->getMessage());
-            return $this->getDefaultContent();
-        }
-    }
-    
-    private function getServices() {
-        try {
-            $stmt = $this->db->query("SELECT * FROM services WHERE is_active = 1 ORDER BY order_position");
-            $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            // Si vide, retourner des services par défaut
-            if (empty($services)) {
-                return $this->getDefaultServices();
-            }
-            
-            return $services;
-        } catch (Exception $e) {
-            error_log("Erreur getServices: " . $e->getMessage());
-            return $this->getDefaultServices();
-        }
-    }
-    
-    private function getTeam() {
-        try {
-            $stmt = $this->db->query("SELECT id, name, position, description, image_path, order_position, is_active FROM team_members WHERE is_active = 1 ORDER BY order_position");
-            $team = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            // Vérifier les chemins d'image
-            foreach ($team as &$member) {
-                if (empty($member['image_path']) || !file_exists($_SERVER['DOCUMENT_ROOT'] . $member['image_path'])) {
-                    error_log("Image manquante pour {$member['name']}: {$member['image_path']}");
-                    $member['image_path'] = '/public/uploads/team/default_team_member.jpg';
+                if ($section && $key) {
+                    $stmt = $this->db->prepare("
+                        INSERT INTO site_content (section, key_name, value, updated_at) 
+                        VALUES (?, ?, ?, datetime('now'))
+                    ");
+                    $stmt->execute([$section, $key, $value]);
+                    $success = 'Nouveau contenu ajouté avec succès!';
+                } else {
+                    $success = 'Erreur : Section et clé sont requis.';
                 }
             }
-            
-            // Si vide, retourner une équipe par défaut
-            if (empty($team)) {
-                return $this->getDefaultTeam();
+            elseif ($action === 'delete_content') {
+                $section = $_POST['content_section'] ?? '';
+                $key = $_POST['content_key'] ?? '';
+                
+                if ($section && $key) {
+                    $stmt = $this->db->prepare("DELETE FROM site_content WHERE section = ? AND key_name = ?");
+                    $stmt->execute([$section, $key]);
+                    $success = 'Contenu supprimé avec succès!';
+                }
             }
+            elseif ($action === 'add_service') {
+                $title = $_POST['title'] ?? '';
+                $description = $_POST['description'] ?? '';
+                $icon = $_POST['icon'] ?? 'fas fa-gavel';
+                $color = $_POST['color'] ?? '#3b82f6';
+                $detailed_content = $_POST['detailed_content'] ?? '';
+                
+                if ($title && $description) {
+                    // Obtenir le prochain order_position
+                    $stmt = $this->db->query("SELECT COALESCE(MAX(order_position), 0) + 1 as next_position FROM services");
+                    $next_position = $stmt->fetchColumn();
+                    
+                    $stmt = $this->db->prepare("
+                        INSERT INTO services (title, description, icon, color, detailed_content, is_active, order_position, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))
+                    ");
+                    $stmt->execute([$title, $description, $icon, $color, $detailed_content, $next_position]);
+                    $success = 'Service ajouté avec succès!';
+                } else {
+                    $success = 'Erreur : Titre et description sont requis.';
+                }
+            }
+            elseif ($action === 'update_service') {
+                $id = $_POST['service_id'];
+                $title = $_POST['title'];
+                $description = $_POST['description'];
+                $icon = $_POST['icon'];
+                $color = $_POST['color'];
+                $detailed_content = $_POST['detailed_content'];
+                
+                $stmt = $this->db->prepare("
+                    UPDATE services 
+                    SET title = ?, description = ?, icon = ?, color = ?, detailed_content = ?, updated_at = datetime('now')
+                    WHERE id = ?
+                ");
+                $stmt->execute([$title, $description, $icon, $color, $detailed_content, $id]);
+                $success = 'Service mis à jour avec succès!';
+            }
+            elseif ($action === 'delete_service') {
+                $id = $_POST['service_id'] ?? '';
+                if ($id) {
+                    $stmt = $this->db->prepare("DELETE FROM services WHERE id = ?");
+                    $stmt->execute([$id]);
+                    $success = 'Service supprimé avec succès!';
+                } else {
+                    $success = 'Erreur : ID du service manquant.';
+                }
+            }
+            elseif ($action === 'reorder_services') {
+                $orders = json_decode($_POST['orders'], true);
+                if ($orders) {
+                    foreach ($orders as $id => $position) {
+                        $stmt = $this->db->prepare("UPDATE services SET order_position = ? WHERE id = ?");
+                        $stmt->execute([$position, $id]);
+                    }
+                    $success = 'Ordre des services mis à jour avec succès!';
+                }
+            }
+            elseif ($action === 'update_team') {
+                $id = $_POST['team_id'];
+                $name = $_POST['name'];
+                $position = $_POST['position'];
+                $description = $_POST['description'];
+                
+                $image_path = $this->handleImageUpload($_FILES['image'], $id);
+                if (is_string($image_path) && strpos($image_path, 'Erreur') === 0) {
+                    $success = $image_path;
+                } else {
+                    $stmt = $this->db->prepare("
+                        UPDATE team_members 
+                        SET name = ?, position = ?, description = ?, image_path = ?, updated_at = datetime('now')
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([$name, $position, $description, $image_path, $id]);
+                    $success = 'Membre de l\'équipe mis à jour avec succès!';
+                }
+            } 
+            elseif ($action === 'add_team') {
+                $name = $_POST['name'] ?? '';
+                $position = $_POST['position'] ?? '';
+                $description = $_POST['description'] ?? '';
+                
+                if ($name && $position && $description && isset($_FILES['image']) && $_FILES['image']['size'] > 0) {
+                    $image_path = $this->handleImageUpload($_FILES['image']);
+                    if (is_string($image_path) && strpos($image_path, 'Erreur') === 0) {
+                        $success = $image_path;
+                    } else {
+                        $stmt = $this->db->prepare("
+                            INSERT INTO team_members (name, position, description, image_path, is_active, order_position, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, 1, (SELECT COALESCE(MAX(order_position), 0) + 1 FROM team_members), datetime('now'), datetime('now'))
+                        ");
+                        $stmt->execute([$name, $position, $description, $image_path]);
+                        $success = 'Membre de l\'équipe ajouté avec succès!';
+                    }
+                } else {
+                    $success = 'Erreur : Tous les champs, y compris l\'image, sont requis pour ajouter un membre.';
+                }
+            } 
+            elseif ($action === 'delete_team') {
+                $id = $_POST['team_id'] ?? '';
+                if ($id) {
+                    // Supprimer l'image associée
+                    $stmt = $this->db->prepare("SELECT image_path FROM team_members WHERE id = ?");
+                    $stmt->execute([$id]);
+                    $image_path = $stmt->fetchColumn();
+                    if ($image_path && file_exists($_SERVER['DOCUMENT_ROOT'] . $image_path)) {
+                        unlink($_SERVER['DOCUMENT_ROOT'] . $image_path);
+                    }
+                    
+                    $stmt = $this->db->prepare("DELETE FROM team_members WHERE id = ?");
+                    $stmt->execute([$id]);
+                    $success = 'Membre de l\'équipe supprimé avec succès!';
+                } else {
+                    $success = 'Erreur : ID du membre manquant.';
+                }
+            }
+            elseif ($action === 'reorder_team') {
+                $orders = json_decode($_POST['orders'], true);
+                if ($orders) {
+                    foreach ($orders as $id => $position) {
+                        $stmt = $this->db->prepare("UPDATE team_members SET order_position = ? WHERE id = ?");
+                        $stmt->execute([$position, $id]);
+                    }
+                    $success = 'Ordre de l\'équipe mis à jour avec succès!';
+                }
+            }
+            elseif ($action === 'add_news_event') {
+                $title = $_POST['title'] ?? '';
+                $content = $_POST['content'] ?? '';
+                $type = $_POST['type'] ?? 'news';
+                $eventDate = $_POST['event_date'] ?? null;
+                $isPublished = isset($_POST['is_published']) ? 1 : 0;
+                
+                if ($title && $content) {
+                    $stmt = $this->db->prepare("
+                        INSERT INTO news_events (title, content, type, event_date, is_published, order_position, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(order_position), 0) + 1 FROM news_events), datetime('now'), datetime('now'))
+                    ");
+                    $stmt->execute([$title, $content, $type, $eventDate, $isPublished]);
+                    $success = 'Actualité/Événement ajouté avec succès!';
+                } else {
+                    $success = 'Erreur : Titre et contenu sont requis.';
+                }
+            }
+            elseif ($action === 'update_news_event') {
+                $id = $_POST['news_event_id'];
+                $title = $_POST['title'];
+                $content = $_POST['content'];
+                $type = $_POST['type'];
+                $eventDate = $_POST['event_date'] ?? null;
+                $isPublished = isset($_POST['is_published']) ? 1 : 0;
+                
+                $stmt = $this->db->prepare("
+                    UPDATE news_events 
+                    SET title = ?, content = ?, type = ?, event_date = ?, is_published = ?, updated_at = datetime('now')
+                    WHERE id = ?
+                ");
+                $stmt->execute([$title, $content, $type, $eventDate, $isPublished, $id]);
+                $success = 'Actualité/Événement mis à jour avec succès!';
+            }
+            elseif ($action === 'delete_news_event') {
+                $id = $_POST['news_event_id'] ?? '';
+                if ($id) {
+                    $stmt = $this->db->prepare("DELETE FROM news_events WHERE id = ?");
+                    $stmt->execute([$id]);
+                    $success = 'Actualité/Événement supprimé avec succès!';
+                }
+            }
+        }
+        
+        // Charger le contenu
+        $stmt = $this->db->query("SELECT section, key_name, value FROM site_content ORDER BY section, key_name");
+        $content = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $content[$row['section']][$row['key_name']] = $row['value'];
+        }
+        
+        // Charger toutes les sections uniques pour la gestion
+        $stmt = $this->db->query("SELECT DISTINCT section FROM site_content ORDER BY section");
+        $sections = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        $services = $this->db->query("SELECT * FROM services ORDER BY order_position")->fetchAll(PDO::FETCH_ASSOC);
+        $team = $this->db->query("SELECT * FROM team_members ORDER BY order_position")->fetchAll(PDO::FETCH_ASSOC);
+        $newsEvents = $this->db->query("SELECT * FROM news_events ORDER BY order_position")->fetchAll(PDO::FETCH_ASSOC);
+        
+        include 'views/admin/content.php';
+    }
+    
+    private function handleImageUpload($file, $existing_id = null) {
+        if ($file['error'] === UPLOAD_ERR_NO_FILE) {
+            if ($existing_id) {
+                // Si mise à jour sans nouveau fichier, conserver l'image existante
+                $stmt = $this->db->prepare("SELECT image_path FROM team_members WHERE id = ?");
+                $stmt->execute([$existing_id]);
+                return $stmt->fetchColumn();
+            }
+            return 'Erreur : Aucun fichier sélectionné';
+        }
+        
+        $allowed_types = ['image/jpeg', 'image/png', 'image/gif'];
+        $max_size = 5 * 1024 * 1024; // 5MB
+        $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/public/uploads/team/';
+        
+        // Créer le dossier si nécessaire
+        if (!is_dir($upload_dir)) {
+            mkdir($upload_dir, 0755, true);
+        }
+        
+        if (!in_array($file['type'], $allowed_types)) {
+            return 'Erreur : Type de fichier non autorisé. Seuls JPG, PNG et GIF sont acceptés.';
+        }
+        
+        if ($file['size'] > $max_size) {
+            return 'Erreur : Le fichier est trop volumineux. Taille maximale : 5MB.';
+        }
+        
+        $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+        $filename = uniqid('team_') . '.' . $extension;
+        $destination = $upload_dir . $filename;
+        $relative_path = '/public/uploads/team/' . $filename;
+        
+        if (move_uploaded_file($file['tmp_name'], $destination)) {
+            // Supprimer l'ancienne image si mise à jour
+            if ($existing_id) {
+                $stmt = $this->db->prepare("SELECT image_path FROM team_members WHERE id = ?");
+                $stmt->execute([$existing_id]);
+                $old_image = $stmt->fetchColumn();
+                if ($old_image && file_exists($_SERVER['DOCUMENT_ROOT'] . $old_image)) {
+                    unlink($_SERVER['DOCUMENT_ROOT'] . $old_image);
+                }
+            }
+            return $relative_path;
+        }
+        
+        return 'Erreur : Échec de l\'upload du fichier.';
+    }
+    
+    public function contacts() {
+        $this->requireAuth();
+        
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $action = $_POST['action'] ?? '';
+            $id = $_POST['id'] ?? '';
             
-            return $team;
-        } catch (Exception $e) {
-            error_log("Erreur getTeam: " . $e->getMessage());
-            return $this->getDefaultTeam();
-        }
-    }
-    
-    private function insertDefaultServices() {
-        $defaultServices = [
-            [
-                'title' => 'Droit des Affaires',
-                'description' => 'Accompagnement juridique complet pour les entreprises, de la création aux opérations complexes.',
-                'icon' => 'fas fa-briefcase',
-                'color' => '#3b82f6',
-                'order_position' => 1,
-                'detailed_content' => $this->getDefaultDetailedContent()
-            ],
-            [
-                'title' => 'Droit de la Famille',
-                'description' => 'Conseil et représentation dans tous les aspects du droit familial et matrimonial.',
-                'icon' => 'fas fa-heart',
-                'color' => '#ef4444',
-                'order_position' => 2,
-                'detailed_content' => $this->getDefaultDetailedContent()
-            ],
-            [
-                'title' => 'Droit Immobilier',
-                'description' => 'Expertise en transactions immobilières, copropriété et contentieux immobiliers.',
-                'icon' => 'fas fa-home',
-                'color' => '#10b981',
-                'order_position' => 3,
-                'detailed_content' => $this->getDefaultDetailedContent()
-            ],
-            [
-                'title' => 'Droit du Travail',
-                'description' => 'Protection des droits des salariés et conseil aux employeurs en droit social.',
-                'icon' => 'fas fa-users',
-                'color' => '#f59e0b',
-                'order_position' => 4,
-                'detailed_content' => $this->getDefaultDetailedContent()
-            ]
-        ];
-        
-        $sql = "INSERT INTO services (title, description, icon, color, order_position, detailed_content, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)";
-        $stmt = $this->db->prepare($sql);
-        
-        foreach ($defaultServices as $service) {
-            $stmt->execute([
-                $service['title'],
-                $service['description'],
-                $service['icon'],
-                $service['color'],
-                $service['order_position'],
-                $service['detailed_content']
-            ]);
+            if ($action === 'mark_read' && $id) {
+                $stmt = $this->db->prepare("UPDATE contacts SET status = 'read', updated_at = datetime('now') WHERE id = ?");
+                $stmt->execute([$id]);
+                $success = 'Message marqué comme lu';
+            } elseif ($action === 'mark_new' && $id) {
+                $stmt = $this->db->prepare("UPDATE contacts SET status = 'new', updated_at = datetime('now') WHERE id = ?");
+                $stmt->execute([$id]);
+                $success = 'Message marqué comme nouveau';
+            } elseif ($action === 'delete' && $id) {
+                $stmt = $this->db->prepare("DELETE FROM contacts WHERE id = ?");
+                $stmt->execute([$id]);
+                $success = 'Message supprimé';
+            }
         }
         
-        error_log("Services par défaut insérés");
+        $contacts = $this->db->query("
+            SELECT * FROM contacts 
+            ORDER BY created_at DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        include 'views/admin/contacts.php';
     }
     
-    private function insertDefaultTeam() {
-        $defaultTeam = [
-            [
-                'name' => 'Maître Jean Dupont',
-                'position' => 'Avocat Associé - Droit des Affaires',
-                'description' => 'Spécialisé en droit des sociétés et fusions-acquisitions, Maître Dupont accompagne les entreprises dans leurs projets de développement depuis plus de 15 ans.',
-                'image_path' => '/public/uploads/team/default_team_member_1.jpg',
-                'order_position' => 1
-            ],
-            [
-                'name' => 'Maître Marie Martin',
-                'position' => 'Avocate Spécialisée - Droit de la Famille',
-                'description' => 'Experte en droit matrimonial et protection de l\'enfance, Maître Martin défend avec passion les intérêts de ses clients dans les situations familiales complexes.',
-                'image_path' => '/public/uploads/team/default_team_member_2.jpg',
-                'order_position' => 2
-            ]
-        ];
+    public function messageDetail() {
+        $this->requireAuth();
         
-        $sql = "INSERT INTO team_members (name, position, description, image_path, order_position, is_active) VALUES (?, ?, ?, ?, ?, 1)";
-        $stmt = $this->db->prepare($sql);
+        $url = $_SERVER['REQUEST_URI'];
+        $parts = explode('/', $url);
+        $messageId = end($parts);
         
-        foreach ($defaultTeam as $member) {
-            $stmt->execute([
-                $member['name'],
-                $member['position'],
-                $member['description'],
-                $member['image_path'],
-                $member['order_position']
-            ]);
+        if (!is_numeric($messageId)) {
+            header('Location: /admin/contacts');
+            exit;
         }
         
-        error_log("Équipe par défaut insérée");
-    }
-    
-    private function insertDefaultContent() {
-        $defaultContent = [
-            ['hero', 'title', 'Cabinet d\'Excellence Juridique'],
-            ['hero', 'subtitle', 'Votre partenaire de confiance pour tous vos besoins juridiques'],
-            ['hero', 'cta_text', 'Prendre rendez-vous'],
-            ['about', 'title', 'À propos de nous'],
-            ['about', 'subtitle', 'Fort de plus de 20 ans d\'expérience, notre cabinet vous accompagne dans tous vos besoins juridiques avec professionnalisme et rigueur.'],
-            ['services', 'title', 'Nos services'],
-            ['services', 'subtitle', 'Des domaines d\'expertise variés pour répondre à tous vos besoins'],
-            ['team', 'title', 'Notre équipe'],
-            ['team', 'subtitle', 'Des experts à votre service'],
-            ['contact', 'title', 'Contactez-nous'],
-            ['contact', 'address', '123 Avenue de la Justice, 75001 Paris'],
-            ['contact', 'phone', '+33 1 23 45 67 89'],
-            ['contact', 'email', 'contact@cabinet-excellence.fr']
-        ];
+        $stmt = $this->db->prepare("SELECT * FROM contacts WHERE id = ?");
+        $stmt->execute([$messageId]);
+        $contact = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        $sql = "INSERT INTO site_content (section, key_name, value) VALUES (?, ?, ?)";
-        $stmt = $this->db->prepare($sql);
-        
-        foreach ($defaultContent as $content) {
-            $stmt->execute($content);
+        if (!$contact) {
+            header('Location: /admin/contacts');
+            exit;
         }
         
-        error_log("Contenu par défaut inséré");
+        $updateStmt = $this->db->prepare("UPDATE contacts SET status = 'read', updated_at = datetime('now') WHERE id = ?");
+        $updateStmt->execute([$messageId]);
+        
+        $filesStmt = $this->db->prepare("SELECT * FROM contact_files WHERE contact_id = ? ORDER BY uploaded_at");
+        $filesStmt->execute([$messageId]);
+        $files = $filesStmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        include 'views/admin/message-detail.php';
     }
     
-    private function getDefaultDetailedContent() {
-        return '
-        <h3>Notre approche</h3>
-        <p>Nous privilégions une approche personnalisée et sur-mesure pour chaque client. Notre méthode comprend :</p>
-        <ul>
-            <li>Analyse approfondie de votre situation</li>
-            <li>Conseil juridique adapté à vos besoins</li>
-            <li>Accompagnement tout au long de la procédure</li>
-            <li>Suivi post-dossier et conseils préventifs</li>
-        </ul>
-
-        <h3>Pourquoi nous choisir ?</h3>
-        <p>Fort de plus de 20 ans d\'expérience, notre cabinet vous garantit :</p>
-        <ul>
-            <li>Une expertise reconnue dans ce domaine</li>
-            <li>Un accompagnement personnalisé</li>
-            <li>Une disponibilité et une réactivité optimales</li>
-            <li>Des tarifs transparents et compétitifs</li>
-        </ul>
-
-        <h3>Première consultation</h3>
-        <p>Nous vous proposons une première consultation gratuite pour évaluer votre situation et vous présenter les différentes options qui s\'offrent à vous.</p>
-        ';
+    public function settings() {
+        $this->requireAuth();
+        
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $success = 'Paramètres mis à jour!';
+        }
+        
+        include 'views/admin/settings.php';
     }
     
-    // Méthodes de fallback avec des données par défaut
-    private function getDefaultContent() {
-        return [
-            'hero' => [
-                'title' => 'Cabinet d\'Excellence Juridique',
-                'subtitle' => 'Votre partenaire de confiance pour tous vos besoins juridiques',
-                'cta_text' => 'Prendre rendez-vous'
-            ],
-            'about' => [
-                'title' => 'À propos de nous',
-                'subtitle' => 'Fort de plus de 20 ans d\'expérience, notre cabinet vous accompagne dans tous vos besoins juridiques avec professionnalisme et rigueur.'
-            ],
-            'services' => [
-                'title' => 'Nos services',
-                'subtitle' => 'Des domaines d\'expertise variés pour répondre à tous vos besoins'
-            ],
-            'team' => [
-                'title' => 'Notre équipe',
-                'subtitle' => 'Des experts à votre service'
-            ],
-            'contact' => [
-                'title' => 'Contactez-nous',
-                'address' => '123 Avenue de la Justice, 75001 Paris',
-                'phone' => '+33 1 23 45 67 89',
-                'email' => 'contact@cabinet-excellence.fr'
-            ]
-        ];
+    public function logout() {
+        session_destroy();
+        header('Location: /admin');
+        exit;
     }
     
-    private function getDefaultServices() {
-        return [
-            [
-                'id' => 1,
-                'title' => 'Droit des Affaires',
-                'description' => 'Accompagnement juridique complet pour les entreprises, de la création aux opérations complexes.',
-                'icon' => 'fas fa-briefcase',
-                'color' => '#3b82f6',
-                'order_position' => 1,
-                'is_active' => 1
-            ],
-            [
-                'id' => 2,
-                'title' => 'Droit de la Famille',
-                'description' => 'Conseil et représentation dans tous les aspects du droit familial et matrimonial.',
-                'icon' => 'fas fa-heart',
-                'color' => '#ef4444',
-                'order_position' => 2,
-                'is_active' => 1
-            ],
-            [
-                'id' => 3,
-                'title' => 'Droit Immobilier',
-                'description' => 'Expertise en transactions immobilières, copropriété et contentieux immobiliers.',
-                'icon' => 'fas fa-home',
-                'color' => '#10b981',
-                'order_position' => 3,
-                'is_active' => 1
-            ],
-            [
-                'id' => 4,
-                'title' => 'Droit du Travail',
-                'description' => 'Protection des droits des salariés et conseil aux employeurs en droit social.',
-                'icon' => 'fas fa-users',
-                'color' => '#f59e0b',
-                'order_position' => 4,
-                'is_active' => 1
-            ]
-        ];
-    }
-    
-    private function getDefaultTeam() {
-        return [
-            [
-                'id' => 1,
-                'name' => 'Maître Jean Dupont',
-                'position' => 'Avocat Associé - Droit des Affaires',
-                'description' => 'Spécialisé en droit des sociétés et fusions-acquisitions, Maître Dupont accompagne les entreprises dans leurs projets de développement depuis plus de 15 ans.',
-                'image_path' => '/public/uploads/team/avocat4.jpg',
-                'order_position' => 1,
-                'is_active' => 1
-            ],
-            [
-                'id' => 2,
-                'name' => 'Maître Marie Martin',
-                'position' => 'Avocate Spécialisée - Droit de la Famille',
-                'description' => 'Experte en droit matrimonial et protection de l\'enfance, Maître Martin défend avec passion les intérêts de ses clients dans les situations familiales complexes.',
-                'image_path' => '/public/uploads/team/avocat5.jpg',
-                'order_position' => 2,
-                'is_active' => 1
-            ]
-        ];
+    private function requireAuth() {
+        if (!isset($_SESSION['admin_logged_in']) || !$_SESSION['admin_logged_in']) {
+            header('Location: /admin');
+            exit;
+        }
     }
 }
 ?>

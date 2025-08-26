@@ -392,6 +392,36 @@ class AdminController {
         include 'views/admin/message-detail.php';
     }
     
+    public function appointments() {
+        $this->requireAuth();
+        
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $action = $_POST['action'] ?? '';
+            $id = $_POST['id'] ?? '';
+            
+            if ($action === 'confirm' && $id) {
+                $stmt = $this->db->prepare("UPDATE appointments SET status = 'confirmed', updated_at = datetime('now') WHERE id = ?");
+                $stmt->execute([$id]);
+                $success = 'Rendez-vous confirmé';
+            } elseif ($action === 'cancel' && $id) {
+                $stmt = $this->db->prepare("UPDATE appointments SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?");
+                $stmt->execute([$id]);
+                $success = 'Rendez-vous annulé';
+            } elseif ($action === 'delete' && $id) {
+                $stmt = $this->db->prepare("DELETE FROM appointments WHERE id = ?");
+                $stmt->execute([$id]);
+                $success = 'Rendez-vous supprimé';
+            }
+        }
+        
+        $appointments = $this->db->query("
+            SELECT * FROM appointments 
+            ORDER BY appointment_date DESC, appointment_time DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        include 'views/admin/appointments.php';
+    }
+    
     public function settings() {
         $this->requireAuth();
         

@@ -33,6 +33,14 @@ class Router {
                 require_once 'controllers/AdminController.php';
                 $controller = new AdminController();
                 $controller->messageDetail();
+            } elseif ($url === '/appointment/slots') {
+                require_once 'controllers/AppointmentController.php';
+                $controller = new AppointmentController();
+                $controller->getAvailableSlots();
+            } elseif ($url === '/appointment/submit') {
+                require_once 'controllers/AppointmentController.php';
+                $controller = new AppointmentController();
+                $controller->submit();
             } elseif ($url === '/' || $url === '') {
                 require_once 'controllers/HomeController.php';
                 $controller = new HomeController();
